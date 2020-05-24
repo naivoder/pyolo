@@ -1,10 +1,15 @@
 from __future__ import division
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
+
+# custom layer for detecting bounding boxes
+class DetectionLayer(nn.Module):
+    def __init__(self, anchors):
+        super(DetectionLayer, self).__init__()
+        self.anchors = anchors
 
 # takes file path as input, returns list of blocks
 def parse_cfg(cfgfile):
@@ -22,7 +27,7 @@ def parse_cfg(cfgfile):
     block, blocks = {}, []
     for line in content:
         # start of a new block
-        if line[0] == ''['':
+        if line[0] == '[':
             # if not empty, save data from old block and start fresh
             if len(block) != 0:
                 blocks.append(block)
@@ -83,7 +88,53 @@ def create_modules(blocks):
                 module.add_module('leaky_{0}'.format(index), activation_layer)
 
         # create upsampling block
-        elif (block['type'] == 'upsample'):
+        elif block['type'] == 'upsample':
             stride = int(block['stride'])
-            upsample = nn.Upsample(scale_factor=2, mode='bilinear')
-            module.add_module('upsample_{0}'.format(index), upsample)
+            upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear')
+            module.add_module('upsample_{0}'.format(index), upsample_layer)
+
+        # create route block
+        elif block['type'] == 'route':
+            # split layers into list
+            block['layers'] = block['layers'].split[',']
+            # start of route
+            start = int(block['layers'][0])
+            # end of route
+            try:
+                end = int(block['layers'][1])
+            except:
+                end = 0
+            if start > 0:
+                start = start - index
+            if end > 0:
+                end = end - index
+            route_layer = EmptyLayer()
+            module.add_module('route_{0}'.format(index), route_layer)
+            if end < 0:
+                # concatenate feature maps with previous layer
+                filters = output_filters[index + start] + output_filters[index + end]
+            else:
+                filters = output_filters[index + start]
+
+        # create shortcut (skip connection) block
+        elif block['type'] == 'shortcut':
+            shortcut_layer = EmptyLayer()
+            module.add_module('shortcut_{0}'.format(index), shortcut_layer)
+
+        # create yolo block -> detection layer
+        elif block['type'] == 'yolo':
+            mask = block['mask'].split(',')
+            mask = [int(m) for m in mask]
+            anchors = block['anchors'].split(',')
+            anchors = [int(a) for a in anchors]
+            anchors = [(anchors[i], anchors[i+1]) for i in range(0, len(anchors), 2)]
+            anchors = [anchors[m] for m in mask]
+            detection_layer = DetectionLayer(anchors)
+            module.add_module('detection_{0}'.format(index), detection)
+
+        # record information from loop
+        module_list.append(module)
+        prev_filters = filters
+        output_filters.append(filters)
+
+        return (net_info, module_list)
