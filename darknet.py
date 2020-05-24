@@ -1,3 +1,8 @@
+"""
+this file parses a cfg input and builds the underlying architecture of the yolo network
+
+"""
+
 from __future__ import division
 import torch
 import torch.nn as nn
@@ -6,10 +11,16 @@ from torch.autograd import Variable
 import numpy as np
 
 # custom layer for detecting bounding boxes
+# https://pytorch.org/docs/stable/nn.html#torch.nn.Module
 class DetectionLayer(nn.Module):
     def __init__(self, anchors):
         super(DetectionLayer, self).__init__()
         self.anchors = anchors
+
+# custom empty layer
+class EmptyLayer(nn.Module):
+    def __init__(self):
+        super(EmptyLayer, self).__init__()
 
 # takes file path as input, returns list of blocks
 def parse_cfg(cfgfile):
@@ -44,7 +55,8 @@ def parse_cfg(cfgfile):
     return blocks
 
 def create_modules(blocks):
-    met_info = blocks[0]
+    net_info = blocks[0]
+    # https://pytorch.org/docs/stable/nn.html#torch.nn.ModuleList
     module_list = nn.ModuleList()
     # must keep track of number of filters in previous layer
     # init as 3 (RGB)
@@ -55,6 +67,7 @@ def create_modules(blocks):
     # skip first block since it only holds net info
     for index, block in enumerate(blocks[1:]):
         # use this class to execute a number of nn.Module objects
+        # https://pytorch.org/docs/stable/nn.html#torch.nn.Sequential
         module = nn.Sequential()
 
         # create convolutional block (3 pieces)
@@ -68,7 +81,7 @@ def create_modules(blocks):
                 batch_normalize = 0
                 bias = True
             filters = int(block['filters'])
-            padding = int(block['padding'])
+            padding = int(block['pad'])
             kernel_size = int(block['size'])
             stride = int(block['stride'])
             if padding:
@@ -76,27 +89,31 @@ def create_modules(blocks):
             else:
                 pad = 0
             # add convolutional layer
+            # https://pytorch.org/docs/stable/nn.html#torch.nn.Conv2d
             convolution_layer = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=bias)
             module.add_module('conv_{0}'.format(index), convolution_layer)
             # add batch norm layer
             if batch_normalize:
+                # https://pytorch.org/docs/stable/nn.html#torch.nn.BatchNorm2d
                 batch_norm_layer = nn.BatchNorm2d(filters)
                 module.add_module('batch_norm_{0}'.format(index), batch_norm_layer)
             # add linear or leaky reLu activation layer (check first)
             if activation == 'leaky':
+                # https://pytorch.org/docs/stable/nn.html#torch.nn.LeakyReLU
                 activation_layer = nn.LeakyReLU(0.1, inplace=True)
                 module.add_module('leaky_{0}'.format(index), activation_layer)
 
         # create upsampling block
         elif block['type'] == 'upsample':
             stride = int(block['stride'])
+            # https://pytorch.org/docs/stable/nn.html#torch.nn.Upsample
             upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear')
             module.add_module('upsample_{0}'.format(index), upsample_layer)
 
         # create route block
         elif block['type'] == 'route':
             # split layers into list
-            block['layers'] = block['layers'].split[',']
+            block['layers'] = block['layers'].split(',')
             # start of route
             start = int(block['layers'][0])
             # end of route
@@ -130,11 +147,15 @@ def create_modules(blocks):
             anchors = [(anchors[i], anchors[i+1]) for i in range(0, len(anchors), 2)]
             anchors = [anchors[m] for m in mask]
             detection_layer = DetectionLayer(anchors)
-            module.add_module('detection_{0}'.format(index), detection)
+            module.add_module('detection_{0}'.format(index), detection_layer)
 
         # record information from loop
         module_list.append(module)
         prev_filters = filters
         output_filters.append(filters)
 
-        return (net_info, module_list)
+    return (net_info, module_list)
+
+if __name__=="__main__":
+    blocks = parse_cfg('cfg/yolov3.cfg')
+    print(create_modules(blocks))
