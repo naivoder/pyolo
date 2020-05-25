@@ -22,6 +22,45 @@ class EmptyLayer(nn.Module):
     def __init__(self):
         super(EmptyLayer, self).__init__()
 
+# custom network architecture definition
+class Darknet(nn.Module):
+    def __init__(self, cfgfile):
+        super(Darknet, self).__init__()
+        self.blocks = parse_cfg(cfgfile)
+        self.net_info, self.module_list = create_modules(self.blocks)
+
+# override forward pass method of nn.Module class
+def forward(self, x, CUDA):
+    # net info block is skipped
+    modules = self.blocks[1:]
+    # cache of output feature maps
+    outputs = {}; write = 0
+    for index, module in enumerate(modules):
+        module_type = module['type']
+        # if convolutional or upsample
+        if module_type == 'convolutional' or module_type == 'upsample':
+            x = self.module_list[index](x)
+        # if route layer
+        elif module_type == 'route':
+            layers = module['layers']
+            layers = [int(l) for l in layers]
+            if layers[0] > 0:
+                layers[0] = layers[0] - index
+            if len(layers) == 1:
+                x = output[index + layers[0]]
+            else:
+                if layers[1] > 0:
+                    layers[1] = layers[1] - index
+                map_1 = outputs[index + layers[0]]
+                map_2 = outputs[index + layers[1]]
+                x = torch.cat((map_1, map_2), 1)
+        # if shortcut layer
+        elif module_type == 'shortcut':
+            start = int(module['from'])
+            x = outputs[index - 1] + outputs[index + start]
+
+
+
 # takes file path as input, returns list of blocks
 def parse_cfg(cfgfile):
     # save content of cfg file as list of strings
