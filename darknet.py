@@ -26,77 +26,6 @@ def test_input():
     img = Variable(img)
     return img
 
-# custom layer for detecting bounding boxes
-# https://pytorch.org/docs/stable/nn.html#torch.nn.Module
-class DetectionLayer(nn.Module):
-    def __init__(self, anchors):
-        super(DetectionLayer, self).__init__()
-        self.anchors = anchors
-
-# custom empty layer
-class EmptyLayer(nn.Module):
-    def __init__(self):
-        super(EmptyLayer, self).__init__()
-
-# custom network architecture definition
-class Darknet(nn.Module):
-    def __init__(self, cfgfile):
-        super(Darknet, self).__init__()
-        self.blocks = parse_cfg(cfgfile)
-        self.net_info, self.module_list = create_modules(self.blocks)
-
-    # override forward pass method of nn.Module class
-    def forward(self, net, CUDA=True):
-        # net info block is skipped
-        modules = self.blocks[1:]
-        # cache of output feature maps
-        # write flag, 1 means collector initialized
-        # i.e. have encountered first detection
-        # we delay initializing collection as empty tensor
-        outputs = {}; write = 0
-        for index, module in enumerate(modules):
-            module_type = module['type']
-            # if convolutional or upsample
-            if module_type == 'convolutional' or module_type == 'upsample':
-                net = self.module_list[index](net)
-            # if route layer
-            elif module_type == 'route':
-                layers = module['layers']
-                layers = [int(l) for l in layers]
-                if layers[0] > 0:
-                    layers[0] = layers[0] - index
-                if len(layers) == 1:
-                    net = output[index + layers[0]]
-                else:
-                    if layers[1] > 0:
-                        layers[1] = layers[1] - index
-                    map_1 = outputs[index + layers[0]]
-                    map_2 = outputs[index + layers[1]]
-                    net = torch.cat((map_1, map_2), 1)
-            # if shortcut layer
-            elif module_type == 'shortcut':
-                start = int(module['from'])
-                net = outputs[index - 1] + outputs[index + start]
-            # can concatenate detection maps at three scales
-            # using predict_transform helper function
-            # output tensor is now table with bounding boxes as rows
-            elif module_type == 'yolo':
-                anchors = self.module_list[index][0].anchors
-                # retrieve input dimensions and class numbers
-                shape = int(self.net_info['height'])
-                num_classes = int(module['classes'])
-                # perform output transform of prediction
-                net = net.data
-                net = predict_transform(net, shape, anchors, num_classes, CUDA)
-                if not write:
-                    detections = net
-                    write = 1
-                else:
-                    detections = torch.cat((detections, net), 1)
-            outputs[index] = net
-        return detections
-
-
 # takes file path as input, returns list of blocks
 def parse_cfg(cfgfile):
     # save content of cfg file as list of strings
@@ -128,6 +57,18 @@ def parse_cfg(cfgfile):
     blocks.append(block)
 
     return blocks
+
+# custom layer for detecting bounding boxes
+# https://pytorch.org/docs/stable/nn.html#torch.nn.Module
+class DetectionLayer(nn.Module):
+    def __init__(self, anchors):
+        super(DetectionLayer, self).__init__()
+        self.anchors = anchors
+
+# custom empty layer
+class EmptyLayer(nn.Module):
+    def __init__(self):
+        super(EmptyLayer, self).__init__()
 
 def create_modules(blocks):
     net_info = blocks[0]
@@ -230,6 +171,67 @@ def create_modules(blocks):
         output_filters.append(filters)
 
     return (net_info, module_list)
+
+# custom network architecture definition
+class Darknet(nn.Module):
+    def __init__(self, cfgfile):
+        super(Darknet, self).__init__()
+        self.blocks = parse_cfg(cfgfile)
+        self.net_info, self.module_list = create_modules(self.blocks)
+
+    # override forward pass method of nn.Module class
+    def forward(self, net, CUDA=True):
+        # net info block is skipped
+        modules = self.blocks[1:]
+        # cache of output feature maps
+        # write flag, 1 means collector initialized
+        # i.e. have encountered first detection
+        # we delay initializing collection as empty tensor
+        outputs = {}; write = 0
+        for index, module in enumerate(modules):
+            module_type = module['type']
+
+            # if convolutional or upsample
+            if module_type == 'convolutional' or module_type == 'upsample':
+                net = self.module_list[index](net)
+
+            # if route layer
+            elif module_type == 'route':
+                layers = module['layers']
+                layers = [int(l) for l in layers]
+                if layers[0] > 0:
+                    layers[0] = layers[0] - index
+                if len(layers) == 1:
+                    net = outputs[index + layers[0]]
+                else:
+                    if layers[1] > 0:
+                        layers[1] = layers[1] - index
+                    map_1 = outputs[index + layers[0]]
+                    map_2 = outputs[index + layers[1]]
+                    net = torch.cat((map_1, map_2), 1)
+                    
+            # if shortcut layer
+            elif module_type == 'shortcut':
+                start = int(module['from'])
+                net = outputs[index - 1] + outputs[index + start]
+            # can concatenate detection maps at three scales
+            # using predict_transform helper function
+            # output tensor is now table with bounding boxes as rows
+            elif module_type == 'yolo':
+                anchors = self.module_list[index][0].anchors
+                # retrieve input dimensions and class numbers
+                shape = int(self.net_info['height'])
+                num_classes = int(module['classes'])
+                # perform output transform of prediction
+                net = net.data
+                net = predict_transform(net, shape, anchors, num_classes, CUDA)
+                if not write:
+                    detections = net
+                    write = 1
+                else:
+                    detections = torch.cat((detections, net), 1)
+            outputs[index] = net
+        return detections
 
 if __name__=="__main__":
     blocks = parse_cfg('cfg/yolov3.cfg')

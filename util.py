@@ -2,6 +2,7 @@ from __future__ import division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 import numpy as np
 import cv2
 
@@ -20,7 +21,7 @@ def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
 
     prediction = prediction.view(batch_size, bbox_attributes * num_anchors, grid_size * grid_size)
     prediction = prediction.transpose(1,2).contiguous()
-    prediction.view(batch_size, grid_size * grid_size * num_anchors, bbox_attributes)
+    prediction = prediction.view(batch_size, grid_size * grid_size * num_anchors, bbox_attributes)
     # dimensions of anchors correspond to height and width in net block
     anchors = [(a[0] / stride, a[1] / stride) for a in anchors]
     # sigmoid 'squishify' function for (x, y, confidence)
@@ -30,11 +31,13 @@ def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
     # add grid offsets to center coordinate position
     grid = np.arange(grid_size)
     a, b = np.meshgrid(grid, grid)
+
     x_offset = torch.FloatTensor(a).view(-1, 1)
     y_offset = torch.FloatTensor(b).view(-1, 1)
-    if CUDA:
-        x_offset = x_offset.cuda()
-        y_offset = y_offset.cuda()
+
+    # if CUDA:
+    #     x_offset = x_offset.cuda()
+    #     y_offset = y_offset.cuda()
     # ...what the heck is this section doing??
     # we're concatenating two offset meshgrids, what are they?
     # what are the calls to 'view' accomplishing? what is 'unsqueeze'?
@@ -43,8 +46,8 @@ def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
     prediction[:, :, :2] += x_y_offset
     # apply anchors to dimensions of bounding box via log space transform
     anchors = torch.FloatTensor(anchors)
-    if CUDA:
-        anchors = anchors.cuda()
+    # if CUDA:
+    #     anchors = anchors.cuda()
     # what are the results of these transformations?
     # need to add debug clause and print shapes at each step...
     anchors = anchors.repeat(grid_size * grid_size, 1).unsqueeze(0)
