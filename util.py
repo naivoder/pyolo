@@ -12,7 +12,7 @@ import cv2
 # takes feature map as input, returns 2D tensor
 # each row corresponds to attribute of bounding box
 def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
-    batch_stride = prediction.size(0)
+    batch_size = prediction.size(0)
     stride = shape // prediction.size(2)
     grid_size = shape // stride
     bbox_attributes = 5 + num_classes
@@ -38,7 +38,7 @@ def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
     # ...what the heck is this section doing??
     # we're concatenating two offset meshgrids, what are they?
     # what are the calls to 'view' accomplishing? what is 'unsqueeze'?
-    x_y_offset = torch.cat((x_offset, y_offset), 1).repreat(1, num_anchors).view(-1, 2).unsqueeze(0)
+    x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
     # apply offset to prediction
     prediction[:, :, :2] += x_y_offset
     # apply anchors to dimensions of bounding box via log space transform
@@ -50,7 +50,7 @@ def predict_transform(prediction, shape, anchors, num_classes, CUDA=True):
     anchors = anchors.repeat(grid_size * grid_size, 1).unsqueeze(0)
     prediction[:, :, 2:4] = torch.exp(prediction[:, :, 2:4]) * anchors
     # apply sigmoid activation to the class scores
-    prediction[:, :, 5:5 + num_classes] = torch.sigmoid((prediction[:, :, 5:5 + num_anchors]))
+    prediction[:, :, 5:5 + num_classes] = torch.sigmoid((prediction[:, :, 5:5 + num_classes]))
     # finally, resize detection map to the size of the input image
     # bounding box atttributes are sized according to feature map (eg 13, 13)
     # if input image is 416, 416 multiply by 32 -> 'stride' variable
