@@ -242,6 +242,7 @@ class Darknet(nn.Module):
 
         weights = np.fromfile(fp, dtype = np.float32)
 
+
         ptr = 0
         for i in range(len(self.module_list)):
             module_type = self.blocks[i + 1]["type"]
@@ -312,6 +313,7 @@ class Darknet(nn.Module):
                 ptr = ptr + num_weights
 
                 conv_weights = conv_weights.view_as(conv.weight.data)
+                conv_weights.to(device)
                 conv.weight.data.copy_(conv_weights)
 
 if __name__=="__main__":
